@@ -15,7 +15,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
 
-      - name: Build Windows app from tagged source archive
+      - name: Build Windows app from versioned source archive
         shell: powershell
         run: |
           if ($env:GITHUB_REF -notmatch '^refs/heads/release/v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') {
@@ -32,28 +32,45 @@ jobs:
           & (Join-Path $sourceDir 'build.ps1')
           Pop-Location
           $exe = Join-Path $sourceDir "dist/Freezer-$version.exe"
+          $latestExe = Join-Path $sourceDir "dist/Freezer-latest.exe"
           $source = Join-Path $sourceDir "dist/Freezer-$version-Source.zip"
           if (!(Test-Path -LiteralPath $exe) -or !(Test-Path -LiteralPath $source)) {
-            throw "The build script version does not match tag $env:GITHUB_REF_NAME. Expected $exe and $source."
+            throw "The build script version does not match release branch $env:GITHUB_REF. Expected $exe and $source."
           }
+          Copy-Item -LiteralPath $exe -Destination $latestExe -Force
           "FREEZER_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FREEZER_TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FREEZER_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FREEZER_LATEST_EXE=$latestExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FREEZER_SOURCE=$source" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Publish GitHub release
+      - name: Publish versioned files and stable website download
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $releaseArgs = @(
-            'release', 'create', $env:FREEZER_TAG,
-            $env:FREEZER_EXE, $env:FREEZER_SOURCE,
-            '--repo', $env:GITHUB_REPOSITORY,
-            '--title', "Freezer $env:FREEZER_VERSION",
-            '--target', $env:GITHUB_SHA,
-            '--generate-notes'
-          )
-          gh @releaseArgs
+          gh release view $env:FREEZER_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $releaseArgs = @(
+              'release', 'upload', $env:FREEZER_TAG,
+              $env:FREEZER_EXE, $env:FREEZER_LATEST_EXE, $env:FREEZER_SOURCE,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--clobber'
+            )
+            gh @releaseArgs
+          } else {
+            $releaseArgs = @(
+              'release', 'create', $env:FREEZER_TAG,
+              $env:FREEZER_EXE, $env:FREEZER_LATEST_EXE, $env:FREEZER_SOURCE,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--title', "Freezer $env:FREEZER_VERSION",
+              '--target', $env:GITHUB_SHA,
+              '--generate-notes'
+            )
+            gh @releaseArgs
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not publish GitHub release $env:FREEZER_TAG."
+          }
 
 
