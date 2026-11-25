@@ -2,8 +2,8 @@ name: Windows Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'release/v*'
 
 permissions:
   contents: write
@@ -12,14 +12,14 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     steps:
-      - name: Check out tagged source
+      - name: Check out release source
         uses: actions/checkout@v4
 
       - name: Build Windows app from tagged source archive
         shell: powershell
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') {
-            throw "Expected a version tag like v2.42.1; got $env:GITHUB_REF_NAME"
+          if ($env:GITHUB_REF -notmatch '^refs/heads/release/v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') {
+            throw "Expected a release branch like release/v2.42.1; got $env:GITHUB_REF"
           }
           $version = $Matches.version
           $archive = "source/Freezer-$version-Source.zip"
@@ -37,6 +37,7 @@ jobs:
             throw "The build script version does not match tag $env:GITHUB_REF_NAME. Expected $exe and $source."
           }
           "FREEZER_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FREEZER_TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FREEZER_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FREEZER_SOURCE=$source" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -46,10 +47,13 @@ jobs:
         shell: pwsh
         run: |
           $releaseArgs = @(
-            'release', 'create', $env:GITHUB_REF_NAME,
+            'release', 'create', $env:FREEZER_TAG,
             $env:FREEZER_EXE, $env:FREEZER_SOURCE,
             '--repo', $env:GITHUB_REPOSITORY,
             '--title', "Freezer $env:FREEZER_VERSION",
+            '--target', $env:GITHUB_SHA,
             '--generate-notes'
           )
           gh @releaseArgs
+
+
