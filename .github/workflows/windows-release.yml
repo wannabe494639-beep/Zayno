@@ -1,0 +1,55 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Build Windows app from tagged source archive
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') {
+            throw "Expected a version tag like v2.42.1; got $env:GITHUB_REF_NAME"
+          }
+          $version = $Matches.version
+          $archive = "source/Freezer-$version-Source.zip"
+          if (!(Test-Path -LiteralPath $archive)) {
+            throw "Add the matching source archive before tagging: $archive"
+          }
+          $sourceDir = Join-Path $env:RUNNER_TEMP "freezer-$version"
+          Expand-Archive -LiteralPath $archive -DestinationPath $sourceDir -Force
+          Push-Location $sourceDir
+          & (Join-Path $sourceDir 'build.ps1')
+          Pop-Location
+          $exe = Join-Path $sourceDir "dist/Freezer-$version.exe"
+          $source = Join-Path $sourceDir "dist/Freezer-$version-Source.zip"
+          if (!(Test-Path -LiteralPath $exe) -or !(Test-Path -LiteralPath $source)) {
+            throw "The build script version does not match tag $env:GITHUB_REF_NAME. Expected $exe and $source."
+          }
+          "FREEZER_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FREEZER_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FREEZER_SOURCE=$source" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $releaseArgs = @(
+            'release', 'create', $env:GITHUB_REF_NAME,
+            $env:FREEZER_EXE, $env:FREEZER_SOURCE,
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--title', "Freezer $env:FREEZER_VERSION",
+            '--generate-notes'
+          )
+          gh @releaseArgs
